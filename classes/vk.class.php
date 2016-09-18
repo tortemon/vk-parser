@@ -1,39 +1,54 @@
 <?php
 
-$config = [
-    'owner_id' => '-1', //owner_id=-1 соответствует сообществам, owner_id=1 соответствует пользователям
-    'count'    => 5 //Количество постов под которыми собираются комментарии
-];
+class VK
+{
+    // Core client part
+    public function method($method, $params) {
+        $url = 'https://api.vk.com/method/' . $method . '?' . $this->paramsToString($params);
+        $response = json_decode(file_get_contents($url), TRUE);
+        
+        return $response;
+    }
 
-$wallJSON = json_decode(file_get_contents('https://api.vk.com/method/wall.get?owner_id=' . $config['owner_id'] . '&count=' . $config['count']), TRUE);
-
-$result = [];
-
-foreach($wallJSON['response'] as $post) {
-
-    $commentJSON = json_decode(
-        file_get_contents('https://api.vk.com/method/wall.getComments?owner_id=' . $config['owner_id'] . '&post_id=' . $post['id'] . '&extended=1&v=5'),
-        TRUE
-    );
-
-    foreach($commentJSON['response']['items'] as $comment) {
-        if($comment['text']) {
-
-            $userDataJSON = json_decode(
-                file_get_contents('https://api.vk.com/method/users.get?user_ids=' . $comment['from_id']),
-                TRUE
-            );
-
-            $resultStr = $userDataJSON['response'][0]['first_name'] . ';' . date('Y-m-d H:i:s', $comment['date']) . ';' . $comment['text'];
-            array_push($result, $resultStr);
+    private function paramsToString($params) {
+        $str = '';
+        foreach($params as $key => $value) {
+            $str .= $key . '=' . $value . '&';
         }
+
+        return trim($str, '&');
+    }
+
+    // Additional functions
+    public function getPostsComments($params) {
+        $posts = $this->method('wall.get', $params);
+        $result = [];
+        foreach($posts['response']['items'] as $post) {
+            $comments = $this->method('wall.getComments', [
+                'owner_id' => $params['owner_id'],
+                'post_id'  => $post['id'],
+                'extended' => '1',
+                'v'        => $params['v']
+            ]);
+
+            foreach($comments['response']['items'] as $comment) {
+
+                if($comment['text']) {
+                    $author = $this->method('users.get', [
+                        'user_ids' => $comment['from_id']
+                    ]);
+
+                    array_push($result, [
+                        'first_name' => $author['response'][0]['first_name'],
+                        'last_name' => $author['response'][0]['last_name'],
+                        'date' => date('Y-m-d H:i:s', $comment['date']),
+                        'text' => $comment['text']
+                    ]);
+                }
+            }
+        }
+
+        return $result;
     }
 }
-
-foreach($result as $comment) {
-    file_put_contents('result.csv', $comment . "\r\n", FILE_APPEND | LOCK_EX);
-}
-
-echo count($result) . ' комментариев записано';
-
 ?>
